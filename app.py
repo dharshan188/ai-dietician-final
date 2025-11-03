@@ -224,6 +224,10 @@ def consult_with_gemini(profile: Dict[str,Any], totals: Dict[str,str],
 def home():
     return render_template("nutri.html")
 
+@app.route("/smart_gross_list")
+def smart_gross_list():
+    return render_template("smart_gross_list.html")
+
 @app.route("/analyze", methods=["POST"])
 def analyze():
     data = request.get_json() or {}
@@ -366,6 +370,67 @@ def call_gemini_chat(message: str, analysis: Dict[str, Any], lang: str="en", mod
         # Fallback for any response structure issues
         return str(resp)
 
+
+def _format_grocery_list_prompt(profile: Dict[str, Any]) -> str:
+    lines = [
+        "You are an expert AI Nutrition Analyst. Generate a personalized grocery list based on the user's detailed health profile.",
+        "The list should be optimized for their dietary goals, restrictions, and preferences.",
+        "Output ONLY a JSON object with a single key 'grocery_list', which is an array of items.",
+        "Each item should have 'category', 'name', and 'quantity'.",
+        "Categorize items logically (e.g., 'Produce', 'Protein', 'Dairy', 'Grains', 'Pantry').",
+        "\n--- USER HEALTH PROFILE ---",
+    ]
+    for key, value in profile.items():
+        lines.append(f"- {key.replace('_', ' ').title()}: {value}")
+    lines.append("\n--- END PROFILE ---")
+    lines.append("\nGenerate the grocery list now.")
+    return "\n".join(lines)
+
+def _parse_grocery_list_from_gemini(text: str) -> Dict[str, Any]:
+    try:
+        match = re.search(r"\{.*\}", text, re.S)
+        if match:
+            return json.loads(match.group(0))
+    except (json.JSONDecodeError, AttributeError):
+        pass
+    return {"grocery_list": []}
+
+
+@app.route("/api/generate_grocery_list", methods=["POST"])
+def generate_grocery_list():
+    profile = request.get_json() or {}
+
+    if not GEMINI_API_KEY or GEMINI_API_KEY == "dummy":
+        # Return a mock response if the API key is not set or is a dummy key
+        mock_list = {
+            "grocery_list": [
+                {"category": "Protein", "name": "Chicken Breast", "quantity": "500g"},
+                {"category": "Vegetables", "name": "Broccoli", "quantity": "300g"},
+                {"category": "Grains", "name": "Brown Rice", "quantity": "250g"},
+            ]
+        }
+        return jsonify(mock_list)
+
+    try:
+        if genai is None:
+            return jsonify({"error": "Gemini SDK (google-genai) not installed on server."}), 500
+
+        client = _ensure_gemini_client()
+        prompt = _format_grocery_list_prompt(profile)
+
+        resp = client.models.generate_content(model=DEFAULT_GEMINI_MODEL, contents=prompt)
+        raw_text = resp.text if hasattr(resp, "text") else str(resp)
+
+        parsed_list = _parse_grocery_list_from_gemini(raw_text)
+
+        if not parsed_list.get("grocery_list"):
+            return jsonify({"error": "Failed to generate a valid grocery list from AI."}), 500
+
+        return jsonify(parsed_list)
+
+    except Exception as e:
+        print(f"Error calling Gemini API: {e}")
+        return jsonify({"error": "An error occurred while generating the grocery list."}), 500
 
 @app.route("/chat", methods=["POST"])
 def chat():
