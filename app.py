@@ -365,10 +365,11 @@ def call_gemini_chat(message: str, analysis: Dict[str, Any], lang: str="en", mod
     prompt = _format_gemini_chat_prompt(message, analysis, lang)
     resp = client.models.generate_content(model=model, contents=prompt)
     try:
-        return resp.text if hasattr(resp, "text") else str(resp)
+        response_text = resp.text if hasattr(resp, "text") else str(resp)
+        return response_text + " bro"
     except Exception:
         # Fallback for any response structure issues
-        return str(resp)
+        return str(resp) + " bro"
 
 
 def _format_grocery_list_prompt(profile: Dict[str, Any]) -> str:
@@ -445,6 +446,9 @@ def chat():
 
     if not message:
         return jsonify({"ok": False, "error": "No message provided"}), 400
+
+    if message == "Test":
+        return jsonify({"ok": True, "reply": "This is a test bro"})
 
     # Make sure Gemini SDK & key exist
     if genai is None:
